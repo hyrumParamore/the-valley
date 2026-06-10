@@ -160,3 +160,85 @@ TV.Structure = {
     ctx.restore();
   },
 };
+
+// The Heartwood — a great dormant tree in the northwest grove. Waking it
+// releases life essence, the third resource (green luminous particles).
+TV.Heartwood = {
+  W: 72, H: 96,
+  base: null,
+  veins: [],
+
+  build() {
+    const cv = document.createElement('canvas');
+    cv.width = this.W; cv.height = this.H;
+    const c = cv.getContext('2d');
+    const r = TV.mulberry32(7117);
+
+    // roots
+    c.fillStyle = '#241c12';
+    for (const [x, w] of [[4, 14], [22, 10], [44, 12], [58, 10]]) {
+      c.fillRect(x, 88, w, 8);
+    }
+    // trunk — broad, ancient, slightly twisted
+    for (let y = 30; y < 92; y++) {
+      const sway = Math.sin(y * 0.09) * 3;
+      const hw = 9 + (92 - y) * 0.12;
+      c.fillStyle = y % 7 < 2 ? '#2c2216' : '#241c12';
+      c.fillRect(36 + sway - hw, y, hw * 2, 1);
+    }
+    // bark texture
+    for (let i = 0; i < 50; i++) {
+      c.fillStyle = r() < 0.5 ? '#1a140c' : '#352a1a';
+      c.fillRect((26 + r() * 20) | 0, (32 + r() * 56) | 0, 1, 2 + ((r() * 4) | 0));
+    }
+    // canopy — wide dark layers
+    const layers = [[36, 26, 32], [36, 16, 24], [36, 8, 15]];
+    for (const [cx, cy, rad] of layers) {
+      for (let y = -rad; y <= rad * 0.8; y++) {
+        const hw = Math.floor(Math.sqrt(Math.max(0, rad * rad - y * y)) * (0.85 + r() * 0.3));
+        c.fillStyle = y < -rad / 3 ? '#1d3326' : (y < rad / 3 ? '#16281e' : '#101e16');
+        c.fillRect(cx - hw, cy + y, hw * 2, 1);
+      }
+    }
+    for (let i = 0; i < 40; i++) {
+      c.fillStyle = r() < 0.5 ? '#101e16' : '#22392c';
+      c.fillRect((8 + r() * 56) | 0, (2 + r() * 40) | 0, 1, 1);
+    }
+
+    // glow veins traced up the trunk + canopy buds (lit when awakened)
+    this.veins = [];
+    let vy = 88;
+    let vx = 36;
+    while (vy > 34) {
+      this.veins.push([vx | 0, vy]);
+      vy -= 2;
+      vx += (r() - 0.5) * 3 + Math.sin(vy * 0.09) * 0.35;
+    }
+    for (let i = 0; i < 14; i++) {
+      this.veins.push([(14 + r() * 44) | 0, (6 + r() * 30) | 0]);
+    }
+
+    this.base = cv;
+  },
+
+  draw(ctx, wx, wy, awake, glow, time) {
+    ctx.drawImage(this.base, wx, wy);
+    if (!awake && glow <= 0) {
+      // a single faint pulse — the tree is not dead, only sleeping
+      const p = 0.25 + 0.2 * Math.sin(time * 1.1);
+      ctx.fillStyle = `rgba(90,180,110,${p})`;
+      ctx.fillRect(wx + 35, wy + 70, 2, 3);
+      return;
+    }
+    const a = Math.min(1, glow);
+    const pulse = 0.65 + 0.35 * Math.sin(time * 2.1);
+    for (let i = 0; i < this.veins.length; i++) {
+      const [vx, vy] = this.veins[i];
+      const ph = 0.5 + 0.5 * Math.sin(time * 2.4 + i * 0.9);
+      ctx.fillStyle = vy > 34
+        ? `rgba(110,230,140,${(0.35 + 0.5 * ph) * a})`
+        : `rgba(150,255,170,${(0.3 + 0.6 * ph) * a * pulse})`;
+      ctx.fillRect(wx + vx, wy + vy, vy > 34 ? 2 : 2, 2);
+    }
+  },
+};

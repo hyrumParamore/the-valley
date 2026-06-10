@@ -32,7 +32,13 @@ cd the-valley-web && python3 -m http.server 8080
    Stir the ember vent, then press **B** and walk — you lay basalt conduit under
    your feet (the docs' "build your own routes"). Lead the fire to the dormant
    smelter to ignite it, forge the hearth key there, unseal the iron hearth at
-   the structure's foot, and route the embers home for the final restoration.
+   the structure's foot, and route the embers home.
+6. **Life Essence (third resource type):** a green glimmer wakes in the northwest
+   grove, where the great Heartwood sleeps. The herbalist's bench in the eastern
+   garden is the first multi-resource station — it needs the water channel beside
+   it AND fire conduit you've routed all the way east. Brew the verdant tincture,
+   carry it to the Heartwood, and life essence streams home through the air.
+   Butterflies and birdsong return.
 
 ## Architecture (ported from the Godot tech doc)
 

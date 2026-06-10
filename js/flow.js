@@ -9,6 +9,7 @@ TV.Flow = {
   fire: null,
   _fireTick: 0,
   litTiles: [],
+  benchFire: false, // lit conduit adjacent to the herbalist bench
 
   init() {
     this.states = {};
@@ -89,7 +90,7 @@ TV.Flow = {
       }
     }
 
-    let smelterTouch = false, hearthTouch = false;
+    let smelterTouch = false, hearthTouch = false, benchTouch = false;
     for (const [k, c] of W.conduits) {
       const d = dist.get(k);
       c.lit = d !== undefined && d <= f.litFront;
@@ -99,6 +100,14 @@ TV.Flow = {
       const S = W.SMELTER;
       if (x >= S.x0 - 1 && x <= S.x1 + 1 && y >= S.y0 - 1 && y <= S.y1 + 1) smelterTouch = true;
       if (Math.abs(x - W.HEARTH.x) + Math.abs(y - W.HEARTH.y) === 1) hearthTouch = true;
+      const B = W.BENCH;
+      if (x >= B.x0 - 1 && x <= B.x1 + 1 && y >= B.y0 - 1 && y <= B.y1 + 1) benchTouch = true;
+    }
+    if (benchTouch && !this.benchFire) {
+      this.benchFire = true;
+      if (this.states.r3.complete) TV.EventBus.emit('station_powered', 'herbalist_bench');
+    } else if (!benchTouch) {
+      this.benchFire = false;
     }
 
     if (smelterTouch && !f.smelterLit) {

@@ -47,6 +47,11 @@ TV.Tiles = {
         c.fillRect((1 + r() * 14) | 0, (1 + r() * 14) | 0, 1, 1);
       }
     });
+    // south-facing wall faces + ambient-occlusion strips (Core Keeper depth)
+    this.cliffFace = this._variants(4, (c, r) => this._cliffFace(c, r));
+    this.shadowN = this._shadowStrip(16, 7, false);
+    this.shadowW = this._shadowStrip(5, 16, true);
+    this.shadowE = this._shadowStrip(5, 16, true, true);
     this.atlas[T.CINDER] = this._variants(4, (c, r) => {
       this._speckle(c, r, '#16110d', ['#211913', '#0d0a07', '#2a2018'], 14);
       if (r() < 0.35) { c.fillStyle = '#7a2c16'; c.fillRect((2 + r() * 12) | 0, (2 + r() * 12) | 0, 1, 1); }
@@ -142,13 +147,41 @@ TV.Tiles = {
   },
 
   _cliff(c, r) {
-    c.fillStyle = '#10141f'; c.fillRect(0, 0, 16, 16);
-    c.fillStyle = '#293350'; c.fillRect(0, 0, 16, 2);
-    c.fillStyle = '#1c2335'; c.fillRect(0, 2, 16, 2);
-    for (let i = 0; i < 7; i++) {
-      c.fillStyle = r() < .5 ? '#171d2c' : '#0b0e16';
-      c.fillRect((r() * 14) | 0, (4 + r() * 11) | 0, 2, 1 + ((r() * 2) | 0));
+    // wall top surface — flat rock with chunky facets
+    c.fillStyle = '#181f30'; c.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 6; i++) {
+      c.fillStyle = r() < .5 ? '#1f2840' : '#121828';
+      const s = 3 + ((r() * 5) | 0);
+      c.fillRect((r() * (16 - s)) | 0, (r() * (16 - s)) | 0, s, s);
     }
+    c.fillStyle = '#2c3754';
+    for (let i = 0; i < 4; i++) c.fillRect((r() * 14) | 0, (r() * 14) | 0, 2, 1);
+  },
+
+  _cliffFace(c, r) {
+    // visible front of a wall — darker, vertically striated, lit top lip
+    c.fillStyle = '#0c0f1a'; c.fillRect(0, 0, 16, 16);
+    c.fillStyle = '#333f60'; c.fillRect(0, 0, 16, 2);
+    c.fillStyle = '#1d2438'; c.fillRect(0, 2, 16, 1);
+    for (let i = 0; i < 8; i++) {
+      c.fillStyle = r() < .5 ? '#131929' : '#070910';
+      const x = (r() * 15) | 0;
+      c.fillRect(x, 3 + ((r() * 4) | 0), 1 + ((r() * 2) | 0), 5 + ((r() * 8) | 0));
+    }
+    c.fillStyle = '#0a0c14'; c.fillRect(0, 14, 16, 2);
+  },
+
+  _shadowStrip(w, h, horizontal, flip) {
+    const cv = this._canvas(w, h);
+    const c = cv.getContext('2d');
+    const g = horizontal
+      ? c.createLinearGradient(flip ? w : 0, 0, flip ? 0 : w, 0)
+      : c.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, 'rgba(4,6,12,0.42)');
+    g.addColorStop(1, 'rgba(4,6,12,0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, w, h);
+    return cv;
   },
 
   _water(c, r, f, deep, wave, sparkle, sparkleChance) {

@@ -26,14 +26,28 @@ TV.Player = {
     };
     const mk = rows => {
       const cv = document.createElement('canvas');
-      cv.width = 12; cv.height = 16;
+      cv.width = 14; cv.height = 17; // +1px margin for the outline
       const c = cv.getContext('2d');
       rows.forEach((row, y) => {
         for (let x = 0; x < row.length; x++) {
           const ch = row[x];
-          if (ch !== '.') { c.fillStyle = PAL[ch]; c.fillRect(x, y, 1, 1); }
+          if (ch !== '.') { c.fillStyle = PAL[ch]; c.fillRect(x + 1, y + 1, 1, 1); }
         }
       });
+      // dark outline around the silhouette — reads crisply against any floor
+      const id = c.getImageData(0, 0, 14, 17);
+      const d = id.data;
+      const solid = (x, y) => x >= 0 && y >= 0 && x < 14 && y < 17 && d[(y * 14 + x) * 4 + 3] > 0;
+      const oc = cv.getContext('2d');
+      oc.fillStyle = '#0c0f18';
+      for (let y = 0; y < 17; y++) {
+        for (let x = 0; x < 14; x++) {
+          if (solid(x, y)) continue;
+          if (solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1)) {
+            oc.fillRect(x, y, 1, 1);
+          }
+        }
+      }
       return cv;
     };
     const down1 = [
@@ -158,11 +172,11 @@ TV.Player = {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(Math.round(this.x) - 4, Math.round(this.y) + 1, 8, 3);
     if (this.facing === 'left') {
-      ctx.translate(Math.round(this.x) + 6, Math.round(this.y) - 12 + bob);
+      ctx.translate(Math.round(this.x) + 7, Math.round(this.y) - 13 + bob);
       ctx.scale(-1, 1);
       ctx.drawImage(spr, 0, 0);
     } else {
-      ctx.drawImage(spr, Math.round(this.x) - 6, Math.round(this.y) - 12 + bob);
+      ctx.drawImage(spr, Math.round(this.x) - 7, Math.round(this.y) - 13 + bob);
     }
     ctx.restore();
   },

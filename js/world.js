@@ -26,6 +26,8 @@ TV.World = {
   VENT: { x: 16, y: 64 },
   SMELTER: { x0: 43, y0: 53, x1: 45, y1: 54 },
   HEARTH: { x: 49, y: 39 },
+  HEARTWOOD: { x0: 18, y0: 8, x1: 21, y1: 10 },
+  BENCH: { x0: 85, y0: 44, x1: 87, y1: 44 },
 
   conduits: new Map(), // "x,y" -> {lit:boolean} — player-built fire routes
 
@@ -172,6 +174,8 @@ TV.World = {
     solid(this.VENT.x, this.VENT.y, this.VENT.x, this.VENT.y);
     solid(this.SMELTER.x0, this.SMELTER.y0, this.SMELTER.x1, this.SMELTER.y1);
     solid(this.HEARTH.x, this.HEARTH.y, this.HEARTH.x, this.HEARTH.y);
+    solid(this.HEARTWOOD.x0, this.HEARTWOOD.y0, this.HEARTWOOD.x1, this.HEARTWOOD.y1);
+    solid(this.BENCH.x0, this.BENCH.y0, this.BENCH.x1, this.BENCH.y1);
   },
 
   canPlaceConduit(x, y) {
@@ -204,7 +208,10 @@ TV.World = {
       (x >= 50 && x <= 60 && y >= 50 && y <= 70) ||   // south path
       (x >= 7 && x <= 32 && y >= 55 && y <= 74) ||    // forge hollow
       (x >= 30 && x <= 52 && y >= 61 && y <= 66) ||   // hollow path
-      (x >= 41 && x <= 47 && y >= 51 && y <= 56);     // smelter clearing
+      (x >= 41 && x <= 47 && y >= 51 && y <= 56) ||   // smelter clearing
+      (x >= 14 && x <= 26 && y >= 4 && y <= 14) ||    // heartwood grove clearing
+      (x >= 26 && x <= 58 && y >= 8 && y <= 13) ||    // grove approach
+      (x >= 82 && x <= 90 && y >= 42 && y <= 47);     // herbalist bench clearing
     for (let y = 4; y < this.H - 4; y++) {
       for (let x = 4; x < this.W - 4; x++) {
         if (this.tile(x, y) !== T.GRASS || blocked(x, y)) continue;

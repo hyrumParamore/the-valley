@@ -9,9 +9,13 @@
   const mainCtx = canvas.getContext('2d');
   mainCtx.imageSmoothingEnabled = false;
 
-  const view = document.createElement('canvas'); view.width = VW; view.height = VH;
+  // The view buffer is padded so the upscaled blit can scroll by fractional
+  // world pixels (integer *screen* pixels) — smooth Core Keeper-style camera.
+  const PAD = 8;
+  const VIEW_W = VW + PAD * 2, VIEW_H = VH + PAD * 2;
+  const view = document.createElement('canvas'); view.width = VIEW_W; view.height = VIEW_H;
   const vctx = view.getContext('2d');
-  const lightCv = document.createElement('canvas'); lightCv.width = VW; lightCv.height = VH;
+  const lightCv = document.createElement('canvas'); lightCv.width = VIEW_W; lightCv.height = VIEW_H;
   const lctx = lightCv.getContext('2d');
 
   const ui = {
@@ -30,7 +34,7 @@
     time: 0,
     stage: 0,
     warmth: 0, warmthTarget: 0,
-    glow: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    glow: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     cascade: 0,
     camX: 0, camY: 0,
     shake: 0,
@@ -40,8 +44,12 @@
     hasKey: false,
     hearthUnsealed: false,
     buildMode: false,
+    tincture: false,
+    lifeAwakened: false,
+    lifeStreamT: 0,     // 0..1 — how far the first essence stream has traveled
     endShown: false,
     endShown4: false,
+    endShown5: false,
     endTimer: -1,
     endStage: 3,
     wheelAngle: 0,
@@ -55,6 +63,21 @@
   // ---------- particles ----------
   const particles = []; // {x,y,vx,vy,life,maxLife,size,color:[r,g,b],add,grav}
   function spawn(p) { p.maxLife = p.life; particles.push(p); }
+
+  const butterflies = [];
+  function initButterflies() {
+    if (butterflies.length) return;
+    const r = TV.mulberry32(212);
+    const zones = [[45 * 16, 39 * 16, 67 * 16, 51 * 16], [80 * 16, 24 * 16, 105 * 16, 56 * 16], [14 * 16, 4 * 16, 40 * 16, 14 * 16], [40 * 16, 52 * 16, 70 * 16, 70 * 16]];
+    const cols = [[240, 190, 90], [220, 130, 170], [140, 200, 240], [170, 230, 140]];
+    for (let i = 0; i < 18; i++) {
+      const z = zones[i % zones.length];
+      butterflies.push({
+        x: z[0] + r() * (z[2] - z[0]), y: z[1] + r() * (z[3] - z[1]),
+        a: r() * 6.28, ph: r() * 6.28, col: cols[i % cols.length],
+      });
+    }
+  }
 
   const fireflies = [];
   function initFireflies() {
@@ -77,9 +100,18 @@
   }
   BUS.on('show_notification', showNote);
 
+  function benchPowered() { return F.benchFire && F.states.r3.complete; }
+
   function objectiveText() {
     const r1 = F.states.r1, r2 = F.states.r2, r3 = F.states.r3;
-    if (G.stage >= 4) return 'Wander. Rest. The valley is whole.';
+    if (G.stage >= 5) return 'The valley is alive. You are home.';
+    if (G.stage >= 4) {
+      if (G.lifeAwakened) return 'The essence streams home.';
+      if (G.tincture) return 'Carry the spark to the great tree in the northwest.';
+      if (benchPowered()) return 'The bench stirs. Brew the verdant tincture.';
+      if (G.buildMode) return 'Walk to lay conduit. B to stop, X to remove.';
+      return 'An herbalist’s bench in the eastern garden asks for water and flame.';
+    }
     if (G.stage >= 3) {
       const fire = F.fire;
       if (!fire.active) return 'Something still smolders in the southwest.';
@@ -102,11 +134,11 @@
     const obj = objectiveText();
     if (obj !== lastObjective) { ui.objective.textContent = obj; lastObjective = obj; }
     let pips = '';
-    const maxPips = G.stage >= 3 ? 4 : 3;
+    const maxPips = G.stage >= 4 ? 5 : G.stage >= 3 ? 4 : 3;
     for (let i = 1; i <= maxPips; i++) pips += i <= G.stage ? '◆' : '◇';
     if (pips !== lastPips) {
       ui.pips.textContent = pips;
-      ui.pips.style.color = G.stage >= 4 ? '#ffb070' : G.stage >= 3 ? '#ffd98a' : '#7ec8e8';
+      ui.pips.style.color = G.stage >= 5 ? '#a8f0b8' : G.stage >= 4 ? '#ffb070' : G.stage >= 3 ? '#ffd98a' : '#7ec8e8';
       lastPips = pips;
     }
   }
@@ -116,7 +148,7 @@
   function save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        version: 2, stage: G.stage,
+        version: 3, stage: G.stage,
         routes: { r1: F.states.r1.complete, r2: F.states.r2.complete, r3: F.states.r3.complete },
         bricks: G.bricks, fountain: G.fountainRepaired,
         fire: {
@@ -124,6 +156,7 @@
           hasKey: G.hasKey, unsealed: G.hearthUnsealed,
           conduits: [...W.conduits.keys()].map(k => k.split(',').map(Number)),
         },
+        life: { tincture: G.tincture, awakened: G.lifeAwakened },
         px: P.x, py: P.y,
       }));
     } catch (e) { /* file:// or private mode — fine, just no persistence */ }
@@ -133,7 +166,7 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
       const d = JSON.parse(raw);
-      return (d.version === 1 || d.version === 2) ? d : null;
+      return (d.version >= 1 && d.version <= 3) ? d : null;
     } catch (e) { return null; }
   }
   function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
@@ -159,6 +192,13 @@
       G.hearthUnsealed = !!d.fire.unsealed;
     }
     if (d.stage >= 4) { G.glow[4] = 1; G.endShown4 = true; }
+    if (d.life) {
+      G.tincture = !!d.life.tincture;
+      G.lifeAwakened = !!d.life.awakened;
+      // if the save was made mid-stream, replay the tail so stage 5 still lands
+      if (G.lifeAwakened) G.lifeStreamT = d.stage >= 5 ? 1 : 0.6;
+    }
+    if (d.stage >= 5) { G.glow[5] = 1; G.endShown5 = true; initButterflies(); }
     if (d.px && d.py) { P.x = d.px; P.y = d.py; }
   }
 
@@ -199,7 +239,13 @@
     if (stage === 4) {
       AU.igniteSound();
       showNote('Warmth returns to the heart of the valley.');
+      setTimeout(() => showNote('In the northwest, something green glimmers between the trees.'), 8000);
       if (!G.endShown4) { G.endStage = 4; G.endTimer = 5; }
+    }
+    if (stage === 5) {
+      initButterflies();
+      showNote('Life returns. The valley remembers how to grow.');
+      if (!G.endShown5) { G.endStage = 5; G.endTimer = 6; }
     }
     save();
     updateHUD();
@@ -229,6 +275,9 @@
     if (id === 'smelter') {
       showNote('The smelter roars to life.');
       AU.igniteSound();
+    } else if (id === 'herbalist_bench') {
+      showNote('Water below, flame beside — the herbalist’s bench awakens.');
+      AU.interactChime();
     } else {
       showNote('The old wheel turns again.');
       AU.interactChime();
@@ -318,6 +367,37 @@
         save();
       },
     },
+    {
+      x: (W.BENCH.x0 + 1.5) * TILE, y: (W.BENCH.y0 + 1.3) * TILE,
+      label: 'Brew the verdant tincture',
+      available: () => G.stage >= 4 && benchPowered() && !G.tincture && !G.lifeAwakened,
+      act() {
+        G.tincture = true;
+        AU.craft();
+        BUS.emit('item_crafted', 'verdant_tincture', 1);
+        showNote('A vial of green light, humming like spring.');
+        save();
+      },
+    },
+    {
+      x: (W.HEARTWOOD.x0 + 2) * TILE, y: (W.HEARTWOOD.y1 + 1.2) * TILE,
+      label: () => G.tincture ? 'Plant the living spark' : 'Touch the heartwood',
+      available: () => G.stage >= 4 && !G.lifeAwakened,
+      act() {
+        if (!G.tincture) {
+          AU.interactChime();
+          showNote('The heartwood sleeps. It is missing something brewed, not built.');
+          return;
+        }
+        G.tincture = false;
+        G.lifeAwakened = true;
+        G.lifeStreamT = 0.001;
+        AU.restorationTheme(2);
+        AU.rumble(1.2);
+        showNote('The heartwood drinks the spark — green veins kindle in the bark.');
+        save();
+      },
+    },
   ];
 
   function nearestInteractable() {
@@ -401,6 +481,7 @@
   // ---------- boot ----------
   TV.Tiles.build();
   TV.Structure.build();
+  TV.Heartwood.build();
   W.build();
   F.init();
   P.init();
@@ -436,6 +517,8 @@
     return list[W.variantSeed[y * W.W + x] % list.length];
   }
 
+  const isWall = (tx, ty) => { const t = W.tile(tx, ty); return t === T.CLIFF || t === T.RUIN; };
+
   function drawGround(x0, y0, x1, y1, frame) {
     const A = TV.Tiles.atlas;
     const cx = 55.5, cy = 30;
@@ -444,7 +527,11 @@
       for (let tx = x0; tx <= x1; tx++) {
         const t = W.tile(tx, ty);
         let img;
-        if (t === T.GRASS || t === T.FLOWERS) {
+        if (t === T.CLIFF) {
+          img = isWall(tx, ty + 1)
+            ? tileVariant(A[T.CLIFF], tx, ty)
+            : tileVariant(TV.Tiles.cliffFace, tx, ty);
+        } else if (t === T.GRASS || t === T.FLOWERS) {
           const d = Math.hypot(tx - cx, ty - cy);
           const warm = d < warmR - 2 || (d < warmR + 2 && ((tx + ty) & 1));
           if (t === T.FLOWERS && warm) img = tileVariant(A[T.FLOWERS], tx, ty);
@@ -459,6 +546,12 @@
           img = tileVariant(A[t], tx, ty);
         }
         vctx.drawImage(img, tx * TILE, ty * TILE);
+        // ambient occlusion — floors in the lee of walls fall into shadow
+        if (!TV.SOLID.has(t)) {
+          if (isWall(tx, ty - 1)) vctx.drawImage(TV.Tiles.shadowN, tx * TILE, ty * TILE);
+          if (isWall(tx - 1, ty)) vctx.drawImage(TV.Tiles.shadowW, tx * TILE, ty * TILE);
+          if (isWall(tx + 1, ty)) vctx.drawImage(TV.Tiles.shadowE, tx * TILE + 11, ty * TILE);
+        }
         const cd = W.conduits.get(W.key(tx, ty));
         if (cd) {
           const cimg = cd.lit ? TV.Tiles.conduitFire[frame] : tileVariant(TV.Tiles.conduit, tx, ty);
@@ -614,6 +707,35 @@
     }
   }
 
+  function drawBench(time) {
+    const bx = (W.BENCH.x0 + 1.5) * TILE, by = W.BENCH.y0 * TILE;
+    vctx.fillStyle = 'rgba(4,6,12,0.35)'; vctx.fillRect(bx - 22, by + 12, 44, 3);
+    vctx.fillStyle = '#3c2e1c'; vctx.fillRect(bx - 22, by - 2, 44, 12);   // table top
+    vctx.fillStyle = '#2a1f12'; vctx.fillRect(bx - 20, by + 10, 4, 6); vctx.fillRect(bx + 16, by + 10, 4, 6);
+    vctx.fillStyle = '#4c3a22'; vctx.fillRect(bx - 22, by - 2, 44, 2);
+    // pots and herbs
+    vctx.fillStyle = '#5a4a30'; vctx.fillRect(bx - 16, by - 7, 6, 5); vctx.fillRect(bx + 9, by - 7, 6, 5);
+    vctx.fillStyle = '#3c6e3a'; vctx.fillRect(bx - 15, by - 10, 4, 3); vctx.fillRect(bx + 10, by - 10, 4, 3);
+    const powered = benchPowered();
+    if (powered) {
+      const p = 0.5 + 0.5 * Math.sin(time * 4);
+      vctx.fillStyle = `rgba(120,230,140,${0.5 + 0.5 * p})`;
+      vctx.fillRect(bx - 3, by - 9, 5, 7); // glowing vial
+      vctx.fillStyle = `rgba(220,255,220,${p})`;
+      vctx.fillRect(bx - 2, by - 8, 2, 2);
+    } else {
+      vctx.fillStyle = '#2a3328'; vctx.fillRect(bx - 3, by - 9, 5, 7);
+    }
+  }
+
+  function drawHeartwood(time) {
+    const hx = W.HEARTWOOD.x0 * TILE - 4;
+    const hy = (W.HEARTWOOD.y1 + 1) * TILE - TV.Heartwood.H;
+    vctx.fillStyle = 'rgba(4,6,12,0.4)';
+    vctx.fillRect(hx + 8, (W.HEARTWOOD.y1 + 1) * TILE - 4, 56, 5);
+    TV.Heartwood.draw(vctx, hx, hy, G.lifeAwakened, G.lifeAwakened ? Math.max(G.lifeStreamT * 3, G.glow[5] || 0) : 0, G.time);
+  }
+
   function drawCampfire(time) {
     const cx = W.CAMPFIRE.x, cy = W.CAMPFIRE.y;
     vctx.fillStyle = '#3a3026';
@@ -695,23 +817,46 @@
       add((W.HEARTH.x + 0.5) * TILE, (W.HEARTH.y) * TILE, 70, [255, 160, 70], 0.9 * a, true);
       for (const bx of [80, 112, 248, 280]) add(S.px + bx + 5, S.py + 124, 46, [255, 150, 60], 0.7 * a, true);
     }
+    // life layer
+    if (benchPowered()) add((W.BENCH.x0 + 1.5) * TILE, W.BENCH.y0 * TILE - 4, 50, [130, 235, 150], 0.6);
+    if (G.lifeAwakened) {
+      add(W.HEARTWOOD.x0 * TILE + 32, W.HEARTWOOD.y0 * TILE - 24, 95, [130, 235, 150], 0.8 * Math.max(G.lifeStreamT * 2, G.glow[5] || 0));
+      if (G.lifeStreamT < 1) { // the first stream's bright front, arcing south
+        const p = lifePoint(G.lifeStreamT);
+        add(p.x, p.y, 55, [160, 255, 180], 0.9, true);
+      }
+    }
+    if (G.stage >= 5) add(S.px + 184, S.py + 50, 80, [150, 245, 170], 0.6 * (G.glow[5] || 0));
     return L;
   }
 
-  function renderLighting(camX, camY) {
+  // the life essence travels by air — a high arc from heartwood to dome
+  function lifePoint(t) {
+    const S = W.STRUCT;
+    const x0 = W.HEARTWOOD.x0 * TILE + 32, y0 = W.HEARTWOOD.y0 * TILE - 20;
+    const x2 = S.px + 184, y2 = S.py + 36;
+    const cx = (x0 + x2) / 2, cy = Math.min(y0, y2) - 100;
+    const u = 1 - t;
+    return {
+      x: u * u * x0 + 2 * u * t * cx + t * t * x2,
+      y: u * u * y0 + 2 * u * t * cy + t * t * y2,
+    };
+  }
+
+  function renderLighting(camIX, camIY) {
     const w = G.warmth;
     const ar = 6 + 38 * w, ag = 10 + 22 * w, ab = 24 - 6 * w;
     const aa = 0.93 - 0.40 * w;
     lctx.globalCompositeOperation = 'source-over';
-    lctx.clearRect(0, 0, VW, VH);
+    lctx.clearRect(0, 0, VIEW_W, VIEW_H);
     lctx.fillStyle = `rgba(${ar | 0},${ag | 0},${ab | 0},${aa})`;
-    lctx.fillRect(0, 0, VW, VH);
+    lctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     const lights = gatherLights();
     lctx.globalCompositeOperation = 'destination-out';
     for (const l of lights) {
-      const sx = l.x - camX + VW / 2, sy = l.y - camY + VH / 2;
-      if (sx < -l.r || sx > VW + l.r || sy < -l.r || sy > VH + l.r || l.s <= 0) continue;
+      const sx = l.x - camIX + VW / 2 + PAD, sy = l.y - camIY + VH / 2 + PAD;
+      if (sx < -l.r || sx > VIEW_W + l.r || sy < -l.r || sy > VIEW_H + l.r || l.s <= 0) continue;
       let s = l.s;
       if (l.flicker) s *= 0.82 + 0.18 * Math.sin(G.time * 12 + l.x * 0.7);
       const g = lctx.createRadialGradient(sx, sy, 1, sx, sy, l.r);
@@ -723,15 +868,15 @@
     vctx.setTransform(1, 0, 0, 1, 0, 0);
     vctx.drawImage(lightCv, 0, 0);
 
-    // additive color tint per light
+    // additive color tint per light — gentle bloom
     vctx.globalCompositeOperation = 'lighter';
     for (const l of lights) {
-      const sx = l.x - camX + VW / 2, sy = l.y - camY + VH / 2;
-      if (sx < -l.r || sx > VW + l.r || sy < -l.r || sy > VH + l.r || l.s <= 0) continue;
+      const sx = l.x - camIX + VW / 2 + PAD, sy = l.y - camIY + VH / 2 + PAD;
+      if (sx < -l.r || sx > VIEW_W + l.r || sy < -l.r || sy > VIEW_H + l.r || l.s <= 0) continue;
       let s = l.s;
       if (l.flicker) s *= 0.82 + 0.18 * Math.sin(G.time * 12 + l.x * 0.7);
       const g = vctx.createRadialGradient(sx, sy, 1, sx, sy, l.r);
-      g.addColorStop(0, `rgba(${l.col[0]},${l.col[1]},${l.col[2]},${0.20 * s})`);
+      g.addColorStop(0, `rgba(${l.col[0]},${l.col[1]},${l.col[2]},${0.24 * s})`);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       vctx.fillStyle = g;
       vctx.fillRect(sx - l.r, sy - l.r, l.r * 2, l.r * 2);
@@ -823,6 +968,22 @@
         life: 1.6, size: 2, color: [90, 86, 92], add: false, soft: 0.3,
       });
     }
+    // life essence motes along the air route
+    if (G.lifeAwakened) {
+      const maxT = G.lifeStreamT;
+      const n = G.stage >= 5 ? 2 : 3;
+      for (let i = 0; i < n; i++) {
+        const t = Math.random() * maxT;
+        const p0 = lifePoint(t), p1 = lifePoint(Math.min(1, t + 0.01));
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const m = Math.hypot(dx, dy) || 1;
+        spawn({
+          x: p0.x + (Math.random() - 0.5) * 8, y: p0.y + (Math.random() - 0.5) * 8,
+          vx: dx / m * 26, vy: dy / m * 26,
+          life: 0.9, size: 1.5, color: [140, 240 - (Math.random() * 50 | 0), 150], add: true,
+        });
+      }
+    }
     // garden sparkles after full restoration
     if (G.stage >= 3 && Math.random() < dt * 6) {
       spawn({
@@ -862,14 +1023,39 @@
       }
       vctx.globalCompositeOperation = 'source-over';
     }
+    // butterflies — creatures return at stage 5
+    if (G.stage >= 5) {
+      for (const b of butterflies) {
+        const flap = Math.sin(G.time * 14 + b.ph) > 0;
+        vctx.fillStyle = `rgba(${b.col[0]},${b.col[1]},${b.col[2]},0.95)`;
+        if (flap) { vctx.fillRect(b.x - 2, b.y, 2, 1); vctx.fillRect(b.x + 1, b.y, 2, 1); }
+        else { vctx.fillRect(b.x - 1, b.y - 1, 1, 2); vctx.fillRect(b.x + 1, b.y - 1, 1, 2); }
+        vctx.fillStyle = 'rgba(20,16,12,0.9)';
+        vctx.fillRect(b.x, b.y, 1, 1);
+      }
+    }
   }
 
   function updateFireflies(dt) {
-    if (G.stage < 2) return;
-    for (const f of fireflies) {
-      f.a += (Math.random() - 0.5) * 2.4 * dt * 8;
-      f.x += Math.cos(f.a) * 9 * dt;
-      f.y += Math.sin(f.a) * 9 * dt;
+    if (G.stage >= 2) {
+      for (const f of fireflies) {
+        f.a += (Math.random() - 0.5) * 2.4 * dt * 8;
+        f.x += Math.cos(f.a) * 9 * dt;
+        f.y += Math.sin(f.a) * 9 * dt;
+      }
+    }
+    if (G.stage >= 5) {
+      for (const b of butterflies) {
+        b.a += (Math.random() - 0.5) * 3 * dt * 8;
+        b.x += Math.cos(b.a) * 14 * dt;
+        b.y += Math.sin(b.a) * 10 * dt + Math.sin(G.time * 14 + b.ph) * 4 * dt;
+      }
+      // birdsong — sparse chirps once life returns
+      if (AU.ctx && !AU.muted && Math.random() < dt * 0.12) {
+        const f0 = 1800 + Math.random() * 700;
+        AU.pluck(f0, 0.045, 'sine', 0.18, false);
+        setTimeout(() => AU.pluck(f0 * (1.1 + Math.random() * 0.2), 0.04, 'sine', 0.22, false), 110);
+      }
     }
   }
 
@@ -1010,7 +1196,11 @@
     updateFireflies(dt);
 
     G.warmth += (G.warmthTarget - G.warmth) * Math.min(1, dt * 0.55);
-    for (let i = 1; i <= 4; i++) if (G.stage >= i) G.glow[i] = Math.min(1, G.glow[i] + dt * 0.4);
+    for (let i = 1; i <= 5; i++) if (G.stage >= i) G.glow[i] = Math.min(1, G.glow[i] + dt * 0.4);
+    if (G.lifeAwakened && G.lifeStreamT < 1) {
+      G.lifeStreamT = Math.min(1, G.lifeStreamT + dt / 8);
+      if (G.lifeStreamT >= 1 && G.stage < 5) restore(5);
+    }
     if (G.stage >= 2) G.cascade = Math.min(1, G.cascade + dt * 0.35);
     G.wheelAngle += dt * (F.states.r3.millPowered ? 2.0 : 0);
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 0.5);
@@ -1018,7 +1208,11 @@
     if (G.endTimer > 0) {
       G.endTimer -= dt;
       if (G.endTimer <= 0) {
-        if (G.endStage >= 4) {
+        if (G.endStage >= 5) {
+          G.endShown5 = true;
+          ui.endcard.querySelector('h1').textContent = 'LIFE RETURNS TO THE VALLEY';
+          ui.endcard.querySelector('p').textContent = 'three of four rivers flow home — starlight waits, somewhere';
+        } else if (G.endStage >= 4) {
           G.endShown4 = true;
           ui.endcard.querySelector('h1').textContent = 'THE VALLEY IS WHOLE';
           ui.endcard.querySelector('p').textContent = 'water and fire flow home together — thank you for playing';
@@ -1031,8 +1225,8 @@
       }
     }
 
-    // camera
-    const lerp = Math.min(1, dt * 5);
+    // camera — exponential smoothing, stable across variable frame times
+    const lerp = 1 - Math.exp(-6 * dt);
     G.camX += (P.x - G.camX) * lerp;
     G.camY += (P.y - 8 - G.camY) * lerp;
     G.camX = Math.max(VW / 2, Math.min(W.W * TILE - VW / 2, G.camX));
@@ -1046,7 +1240,7 @@
     // interaction
     const near = nearestInteractable();
     if (near) {
-      const label = `[E]  ${near.label}`;
+      const label = `[E]  ${typeof near.label === 'function' ? near.label() : near.label}`;
       if (promptShown !== label) { ui.prompt.textContent = label; promptShown = label; }
       ui.prompt.style.opacity = 1;
       if (interactPressed) near.act();
@@ -1061,15 +1255,17 @@
 
     // --- draw world
     const camX = G.camX + shx, camY = G.camY + shy;
+    const camIX = Math.floor(camX), camIY = Math.floor(camY);
+    const fracX = camX - camIX, fracY = camY - camIY;
     vctx.setTransform(1, 0, 0, 1, 0, 0);
     vctx.fillStyle = '#05070f';
-    vctx.fillRect(0, 0, VW, VH);
-    vctx.translate(Math.round(VW / 2 - camX), Math.round(VH / 2 - camY));
+    vctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    vctx.translate(VW / 2 + PAD - camIX, VH / 2 + PAD - camIY);
 
-    const x0 = Math.max(0, Math.floor((camX - VW / 2) / TILE) - 1);
-    const x1 = Math.min(W.W - 1, Math.ceil((camX + VW / 2) / TILE) + 1);
-    const y0 = Math.max(0, Math.floor((camY - VH / 2) / TILE) - 1);
-    const y1 = Math.min(W.H - 1, Math.ceil((camY + VH / 2) / TILE) + 2);
+    const x0 = Math.max(0, Math.floor((camX - VW / 2 - PAD) / TILE) - 1);
+    const x1 = Math.min(W.W - 1, Math.ceil((camX + VW / 2 + PAD) / TILE) + 1);
+    const y0 = Math.max(0, Math.floor((camY - VH / 2 - PAD) / TILE) - 1);
+    const y1 = Math.min(W.H - 1, Math.ceil((camY + VH / 2 + PAD) / TILE) + 2);
     const frame3 = Math.floor(G.time * 6) % 3;
 
     drawGround(x0, y0, x1, y1, frame3);
@@ -1098,6 +1294,9 @@
       drawables.push({ y: tr.y, fn: () => {
         const d = Math.hypot(tr.x / TILE - 55.5, tr.y / TILE - 30);
         const set = d < G.warmth * 75 ? TV.Tiles.warmTrees : TV.Tiles.trees;
+        vctx.fillStyle = 'rgba(4,6,12,0.35)';
+        vctx.fillRect(tr.x - 7, tr.y + 1, 14, 3);
+        vctx.fillRect(tr.x - 5, tr.y + 4, 10, 1);
         vctx.drawImage(set[tr.kind], tr.x - 13, tr.y - 30);
       }});
     }
@@ -1109,6 +1308,8 @@
     drawables.push({ y: (W.VENT.y + 1) * TILE, fn: () => drawVent(G.time) });
     drawables.push({ y: (W.SMELTER.y1 + 1) * TILE + 14, fn: () => drawSmelter(G.time) });
     drawables.push({ y: (W.HEARTH.y + 1) * TILE, fn: () => drawHearth(G.time) });
+    drawables.push({ y: (W.BENCH.y0 + 1) * TILE, fn: () => drawBench(G.time) });
+    drawables.push({ y: (W.HEARTWOOD.y1 + 1) * TILE, fn: () => drawHeartwood(G.time) });
     drawables.push({ y: P.y, fn: () => P.draw(vctx) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.fn();
@@ -1116,12 +1317,16 @@
     drawParticles();
 
     // lighting overlay (viewport space)
-    renderLighting(camX, camY);
+    renderLighting(camIX, camIY);
 
-    // --- upscale to screen
+    // --- upscale to screen, scrolled by the camera's fractional remainder
     mainCtx.setTransform(1, 0, 0, 1, 0, 0);
     mainCtx.imageSmoothingEnabled = false;
-    mainCtx.drawImage(view, 0, 0, VW, VH, 0, 0, VW * SCALE, VH * SCALE);
+    mainCtx.fillStyle = '#05070f';
+    mainCtx.fillRect(0, 0, VW * SCALE, VH * SCALE);
+    const ox = -Math.round((PAD + fracX) * SCALE);
+    const oy = -Math.round((PAD + fracY) * SCALE);
+    mainCtx.drawImage(view, 0, 0, VIEW_W, VIEW_H, ox, oy, VIEW_W * SCALE, VIEW_H * SCALE);
     mainCtx.drawImage(vignette, 0, 0);
   }
 
