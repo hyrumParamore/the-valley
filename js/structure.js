@@ -122,6 +122,17 @@ TV.Structure = {
       ctx.fillStyle = `rgba(190,235,255,${0.5 * a * pulse})`;
       ctx.fillRect(wx + 178, wy + 8, 12, 16);
     }
+    // braziers flare on the column tops once fire returns (stage 4)
+    if (stage >= 4) {
+      const a = Math.min(1, glow[4] || 0);
+      for (const x of [80, 112, 248, 280]) {
+        const fl = 0.6 + 0.4 * Math.sin(time * 9 + x);
+        ctx.fillStyle = `rgba(255,150,60,${0.9 * a * fl})`;
+        ctx.fillRect(wx + x + 2, wy + 122 - 6 * fl, 6, 6 * fl + 2);
+        ctx.fillStyle = `rgba(255,225,130,${0.8 * a * fl})`;
+        ctx.fillRect(wx + x + 4, wy + 124 - 3 * fl, 2, 3 * fl);
+      }
+    }
   },
 
   // waterfall cascading down the tower face (stage >= 2), drawn additively

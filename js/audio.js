@@ -55,6 +55,36 @@ TV.Audio = {
     wat.connect(watBp); watBp.connect(this.waterGain);
     this.waterGain.connect(this.master);
     wat.start();
+
+    // fire — low crackling noise with amplitude jitter, gain by proximity to embers
+    this.fireGain = C.createGain(); this.fireGain.gain.value = 0.0;
+    const fir = C.createBufferSource(); fir.buffer = noiseBuf; fir.loop = true;
+    const firLp = C.createBiquadFilter(); firLp.type = 'lowpass'; firLp.frequency.value = 520;
+    const jitter = C.createGain(); jitter.gain.value = 0.6;
+    for (const [fq, amt] of [[6.7, 0.22], [11.3, 0.16]]) {
+      const o = C.createOscillator(); o.frequency.value = fq;
+      const g = C.createGain(); g.gain.value = amt;
+      o.connect(g); g.connect(jitter.gain); o.start();
+    }
+    fir.connect(firLp); firLp.connect(jitter); jitter.connect(this.fireGain);
+    this.fireGain.connect(this.master);
+    fir.start();
+  },
+
+  igniteSound() {
+    if (!this.ctx) return;
+    const C = this.ctx, t = C.currentTime;
+    const s = C.createBufferSource(); s.buffer = this._noiseBuffer();
+    const f = C.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(180, t);
+    f.frequency.exponentialRampToValueAtTime(1400, t + 0.5);
+    const g = C.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.18);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    s.connect(f); f.connect(g); g.connect(this.master);
+    s.start(t); s.stop(t + 1.2);
+    this.pluck(110, 0.25, 'sine', 2.5);
   },
 
   _noiseBuffer() {
@@ -70,12 +100,13 @@ TV.Audio = {
     return buf;
   },
 
-  setLevels(wind, hum, water) {
+  setLevels(wind, hum, water, fire = 0) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.windGain.gain.setTargetAtTime(wind * 0.5, t, 0.6);
     this.humGain.gain.setTargetAtTime(hum * 0.16, t, 0.6);
     this.waterGain.gain.setTargetAtTime(water * 0.30, t, 0.4);
+    this.fireGain.gain.setTargetAtTime(fire * 0.22, t, 0.4);
   },
 
   toggleMute() {

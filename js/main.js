@@ -30,15 +30,20 @@
     time: 0,
     stage: 0,
     warmth: 0, warmthTarget: 0,
-    glow: { 1: 0, 2: 0, 3: 0 },
+    glow: { 1: 0, 2: 0, 3: 0, 4: 0 },
     cascade: 0,
     camX: 0, camY: 0,
     shake: 0,
     bricks: 0,
     fountainRepaired: false,
     muralLit: false,
+    hasKey: false,
+    hearthUnsealed: false,
+    buildMode: false,
     endShown: false,
+    endShown4: false,
     endTimer: -1,
+    endStage: 3,
     wheelAngle: 0,
     noteTimer: 0,
     hasSave: false,
@@ -74,7 +79,16 @@
 
   function objectiveText() {
     const r1 = F.states.r1, r2 = F.states.r2, r3 = F.states.r3;
-    if (G.stage >= 3) return 'Wander. Rest. It is done.';
+    if (G.stage >= 4) return 'Wander. Rest. The valley is whole.';
+    if (G.stage >= 3) {
+      const fire = F.fire;
+      if (!fire.active) return 'Something still smolders in the southwest.';
+      if (G.buildMode) return 'Walk to lay conduit. B to stop, X to remove.';
+      if (!fire.smelterLit) return 'Press B and walk — lead the fire to the old smelter.';
+      if (!G.hasKey) return 'The smelter roars. Forge what the hearth requires.';
+      if (!G.hearthUnsealed) return 'Unseal the hearth at the structure’s foot.';
+      return 'Lead the fire home.';
+    }
     if (r3 && r3.active && !r3.complete) return 'Follow the water home.';
     if (G.stage === 2) return 'East, past the withered bramble, a garden waits.';
     if (r2 && r2.active && !r2.complete) return 'The structure drinks.';
@@ -88,10 +102,11 @@
     const obj = objectiveText();
     if (obj !== lastObjective) { ui.objective.textContent = obj; lastObjective = obj; }
     let pips = '';
-    for (let i = 1; i <= 3; i++) pips += i <= G.stage ? '◆' : '◇';
+    const maxPips = G.stage >= 3 ? 4 : 3;
+    for (let i = 1; i <= maxPips; i++) pips += i <= G.stage ? '◆' : '◇';
     if (pips !== lastPips) {
       ui.pips.textContent = pips;
-      ui.pips.style.color = G.stage >= 3 ? '#ffd98a' : '#7ec8e8';
+      ui.pips.style.color = G.stage >= 4 ? '#ffb070' : G.stage >= 3 ? '#ffd98a' : '#7ec8e8';
       lastPips = pips;
     }
   }
@@ -101,9 +116,14 @@
   function save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        version: 1, stage: G.stage,
+        version: 2, stage: G.stage,
         routes: { r1: F.states.r1.complete, r2: F.states.r2.complete, r3: F.states.r3.complete },
         bricks: G.bricks, fountain: G.fountainRepaired,
+        fire: {
+          active: F.fire.active, smelterLit: F.fire.smelterLit, delivered: F.fire.delivered,
+          hasKey: G.hasKey, unsealed: G.hearthUnsealed,
+          conduits: [...W.conduits.keys()].map(k => k.split(',').map(Number)),
+        },
         px: P.x, py: P.y,
       }));
     } catch (e) { /* file:// or private mode — fine, just no persistence */ }
@@ -113,7 +133,7 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
       const d = JSON.parse(raw);
-      return d.version === 1 ? d : null;
+      return (d.version === 1 || d.version === 2) ? d : null;
     } catch (e) { return null; }
   }
   function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
@@ -121,22 +141,33 @@
   function applySave(d) {
     for (const id of ['r1', 'r2', 'r3']) if (d.routes[id]) F.completeInstantly(id);
     G.stage = d.stage;
-    G.warmth = G.warmthTarget = d.stage / 3;
+    G.warmth = G.warmthTarget = Math.min(1, d.stage / 3);
     for (let i = 1; i <= d.stage; i++) G.glow[i] = 1;
     if (d.stage >= 1) W.clearOverlays('rubble');
     if (d.stage >= 2) { W.clearOverlays('bramble'); G.muralLit = true; G.cascade = 1; initFireflies(); }
     if (d.stage >= 3) { W.plantGarden(); G.endShown = true; }
     G.bricks = d.bricks || 0;
     G.fountainRepaired = !!d.fountain;
+    if (d.fire) {
+      for (const [x, y] of d.fire.conduits || []) W.conduits.set(W.key(x, y), { lit: false });
+      F.fire.active = !!d.fire.active;
+      F.fire.smelterLit = !!d.fire.smelterLit;
+      F.fire.delivered = !!d.fire.delivered;
+      F.fire.unsealed = !!d.fire.unsealed;
+      F.fire.litFront = 99999;
+      G.hasKey = !!d.fire.hasKey;
+      G.hearthUnsealed = !!d.fire.unsealed;
+    }
+    if (d.stage >= 4) { G.glow[4] = 1; G.endShown4 = true; }
     if (d.px && d.py) { P.x = d.px; P.y = d.py; }
   }
 
   // ---------- restoration sequencing ----------
   function restore(stage) {
     G.stage = Math.max(G.stage, stage);
-    G.warmthTarget = G.stage / 3;
+    G.warmthTarget = Math.min(1, G.stage / 3);
     G.shake = 0.5;
-    AU.restorationTheme(stage);
+    AU.restorationTheme(Math.min(3, stage));
     if (stage === 1) {
       showNote('The structure stirs — stone remembers water.');
       setTimeout(() => {
@@ -162,7 +193,13 @@
     if (stage === 3) {
       W.plantGarden();
       showNote('The valley breathes again.');
-      if (!G.endShown) G.endTimer = 6;
+      setTimeout(() => showNote('Far to the southwest, a thin line of smoke rises.'), 7000);
+      if (!G.endShown) { G.endStage = 3; G.endTimer = 6; }
+    }
+    if (stage === 4) {
+      AU.igniteSound();
+      showNote('Warmth returns to the heart of the valley.');
+      if (!G.endShown4) { G.endStage = 4; G.endTimer = 5; }
     }
     save();
     updateHUD();
@@ -185,11 +222,18 @@
     if (id === 'r1') setTimeout(() => restore(1), 700);
     if (id === 'r2') restore(2);
     if (id === 'r3') setTimeout(() => restore(3), 700);
+    if (id === 'fire') setTimeout(() => restore(4), 500);
   });
 
-  BUS.on('station_powered', () => {
-    showNote('The old wheel turns again.');
-    AU.interactChime();
+  BUS.on('station_powered', id => {
+    if (id === 'smelter') {
+      showNote('The smelter roars to life.');
+      AU.igniteSound();
+    } else {
+      showNote('The old wheel turns again.');
+      AU.interactChime();
+    }
+    save();
   });
 
   // ---------- interactables ----------
@@ -236,6 +280,44 @@
       available: () => G.muralLit,
       act() { AU.interactChime(); showNote('Four rivers met here once — water, flame, life, and starlight.'); },
     },
+    {
+      x: (W.VENT.x + 0.5) * TILE, y: (W.VENT.y + 0.5) * TILE,
+      label: 'Stir the embers',
+      available: () => G.stage >= 3 && !F.fire.active,
+      act() {
+        F.fire.active = true;
+        AU.igniteSound();
+        AU.rumble(1.6);
+        showNote('The embers remember the forge.');
+        setTimeout(() => showNote('Press B and walk to lay conduit. X removes it.'), 4500);
+        save();
+      },
+    },
+    {
+      x: (W.SMELTER.x0 + 1.5) * TILE, y: (W.SMELTER.y1 + 1.4) * TILE,
+      label: 'Forge the hearth key',
+      available: () => F.fire.smelterLit && !G.hasKey,
+      act() {
+        G.hasKey = true;
+        AU.craft();
+        BUS.emit('item_crafted', 'hearth_key', 1);
+        showNote('A key of black iron, still warm from the forge.');
+        save();
+      },
+    },
+    {
+      x: (W.HEARTH.x + 0.5) * TILE, y: (W.HEARTH.y + 0.5) * TILE,
+      label: 'Unseal the hearth',
+      available: () => G.hasKey && !G.hearthUnsealed,
+      act() {
+        G.hearthUnsealed = true;
+        F.fire.unsealed = true;
+        AU.rumble(1.0);
+        AU.interactChime();
+        showNote('The iron seal falls away. The hearth waits for fire.');
+        save();
+      },
+    },
   ];
 
   function nearestInteractable() {
@@ -260,6 +342,21 @@
     if (G.state === 'title') { startGame(); return; }
     if (G.state === 'end') { dismissEnd(); }
     if (k === 'm') { AU.toggleMute(); return; }
+    if (k === 'b' && F.fire.active) {
+      G.buildMode = !G.buildMode;
+      lastLaidTile = null;
+      AU.pluck(G.buildMode ? 440 : 330, 0.1, 'square', 0.2, false);
+      ui.controls.textContent = G.buildMode
+        ? 'BUILD — walk to lay conduit · B to stop · X to remove'
+        : 'WASD / arrows — move · E — interact · B — build · M — mute';
+      ui.controls.style.opacity = G.buildMode ? 1 : 0;
+      return;
+    }
+    if (k === 'x' && F.fire.active) {
+      const tx = Math.floor(P.x / TILE), ty = Math.floor(P.y / TILE);
+      if (W.removeConduit(tx, ty)) { AU.pluck(240, 0.1, 'square', 0.15, false); save(); }
+      return;
+    }
     if (keyMap[k]) { input[keyMap[k]] = 1; e.preventDefault(); }
     if (k === 'e' || k === 'enter') interactPressed = true;
   });
@@ -278,7 +375,7 @@
   (function tryCover() {
     const img = new Image();
     img.onload = () => { coverImg = img; };
-    img.src = 'cover.png';
+    img.src = 'cover.jpg';
   })();
 
   function startGame() {
@@ -362,7 +459,28 @@
           img = tileVariant(A[t], tx, ty);
         }
         vctx.drawImage(img, tx * TILE, ty * TILE);
+        const cd = W.conduits.get(W.key(tx, ty));
+        if (cd) {
+          const cimg = cd.lit ? TV.Tiles.conduitFire[frame] : tileVariant(TV.Tiles.conduit, tx, ty);
+          const n = W.conduits.has(W.key(tx, ty - 1)), s = W.conduits.has(W.key(tx, ty + 1));
+          const e = W.conduits.has(W.key(tx + 1, ty)), w2 = W.conduits.has(W.key(tx - 1, ty));
+          if (e || w2 || (!n && !s)) vctx.drawImage(cimg, tx * TILE, ty * TILE);
+          if (n || s) { // vertical run — rotate the groove; corners get both passes
+            vctx.save();
+            vctx.translate(tx * TILE + 8, ty * TILE + 8);
+            vctx.rotate(Math.PI / 2);
+            vctx.drawImage(cimg, -8, -8);
+            vctx.restore();
+          }
+        }
       }
+    }
+    // build-mode cursor: highlight the tile underfoot
+    if (G.buildMode) {
+      const tx = Math.floor(P.x / TILE), ty = Math.floor(P.y / TILE);
+      const ok = W.conduits.has(W.key(tx, ty)) || W.canPlaceConduit(tx, ty);
+      vctx.strokeStyle = ok ? 'rgba(255,180,90,0.8)' : 'rgba(255,80,80,0.8)';
+      vctx.strokeRect(tx * TILE + 0.5, ty * TILE + 0.5, 15, 15);
     }
   }
 
@@ -451,6 +569,51 @@
     vctx.fillStyle = '#5a657f'; vctx.fillRect(fx - 2, fy - 7, 4, 6);
   }
 
+  function drawVent(time) {
+    const vx = (W.VENT.x + 0.5) * TILE, vy = (W.VENT.y + 0.5) * TILE;
+    vctx.fillStyle = '#241d18'; vctx.fillRect(vx - 8, vy - 6, 16, 12);
+    vctx.fillStyle = '#332923'; vctx.fillRect(vx - 6, vy - 9, 12, 5);
+    const active = F.fire.active;
+    const p = 0.5 + 0.5 * Math.sin(time * (active ? 7 : 2.2));
+    vctx.fillStyle = active ? `rgba(255,150,60,${0.5 + 0.5 * p})` : `rgba(168,58,40,${0.25 + 0.3 * p})`;
+    vctx.fillRect(vx - 3, vy - 7, 2, 9); vctx.fillRect(vx + 1, vy - 4, 2, 6); vctx.fillRect(vx - 6, vy - 2, 2, 4);
+    if (active) { vctx.fillStyle = `rgba(255,225,130,${p})`; vctx.fillRect(vx - 2, vy - 6, 1, 2); }
+  }
+
+  function drawSmelter(time) {
+    const sx = (W.SMELTER.x0 + 1.5) * TILE, sy = W.SMELTER.y0 * TILE;
+    vctx.fillStyle = '#36302a'; vctx.fillRect(sx - 22, sy - 14, 44, 44);
+    vctx.fillStyle = '#46403a'; vctx.fillRect(sx - 22, sy - 14, 44, 4);
+    vctx.fillStyle = '#2a241e'; vctx.fillRect(sx - 18, sy - 10, 8, 36); vctx.fillRect(sx + 10, sy - 10, 8, 36);
+    vctx.fillStyle = '#221c16'; vctx.fillRect(sx - 6, sy - 26, 12, 14); // chimney
+    // arch mouth
+    vctx.fillStyle = '#0d0a08'; vctx.fillRect(sx - 8, sy + 8, 16, 20);
+    if (F.fire.smelterLit) {
+      const p = 0.6 + 0.4 * Math.sin(time * 8);
+      vctx.fillStyle = `rgba(232,90,26,${0.85})`; vctx.fillRect(sx - 6, sy + 12, 12, 14);
+      vctx.fillStyle = `rgba(255,156,58,${p})`; vctx.fillRect(sx - 4, sy + 14, 8, 10);
+      vctx.fillStyle = `rgba(255,225,130,${p})`; vctx.fillRect(sx - 2, sy + 18, 4, 5);
+    }
+  }
+
+  function drawHearth(time) {
+    const hx = (W.HEARTH.x + 0.5) * TILE, hy = (W.HEARTH.y + 0.5) * TILE;
+    vctx.fillStyle = '#23262e'; vctx.fillRect(hx - 7, hy - 5, 14, 11);
+    vctx.fillStyle = '#3a3f4c'; vctx.fillRect(hx - 7, hy - 7, 14, 3);
+    if (!G.hearthUnsealed) {
+      vctx.fillStyle = '#16181e'; vctx.fillRect(hx - 5, hy - 5, 10, 8);
+      vctx.fillStyle = '#2e333e';
+      vctx.fillRect(hx - 5, hy - 2, 10, 1); vctx.fillRect(hx - 1, hy - 5, 2, 8);
+    } else if (G.stage >= 4) {
+      const p = 0.6 + 0.4 * Math.sin(time * 9);
+      vctx.fillStyle = `rgba(232,90,26,0.9)`; vctx.fillRect(hx - 5, hy - 5, 10, 8);
+      vctx.fillStyle = `rgba(255,180,80,${p})`; vctx.fillRect(hx - 3, hy - 7 - 2 * p, 6, 6);
+      vctx.fillStyle = `rgba(255,235,150,${p})`; vctx.fillRect(hx - 1, hy - 5 - 2 * p, 2, 4);
+    } else {
+      vctx.fillStyle = '#0d0f14'; vctx.fillRect(hx - 5, hy - 5, 10, 8);
+    }
+  }
+
   function drawCampfire(time) {
     const cx = W.CAMPFIRE.x, cy = W.CAMPFIRE.y;
     vctx.fillStyle = '#3a3026';
@@ -520,6 +683,18 @@
     if (G.muralLit) add(48 * TILE, 44.5 * TILE, 50, [170, 200, 255], 0.7 * (G.glow[2] || 0));
     if (F.states.r3.millPowered) add(74.5 * TILE, 40.5 * TILE, 58, [255, 195, 105], 0.7, true);
     if (G.fountainRepaired) add((W.FOUNTAIN.x + 1) * TILE, (W.FOUNTAIN.y + 1) * TILE, 52, [130, 220, 255], 0.65);
+    // fire layer
+    if (G.stage >= 3) add((W.VENT.x + 0.5) * TILE, (W.VENT.y + 0.5) * TILE, F.fire.active ? 70 : 40, F.fire.active ? [255, 150, 60] : [200, 70, 50], F.fire.active ? 0.8 : 0.35, true);
+    if (F.fire.smelterLit) add((W.SMELTER.x0 + 1.5) * TILE, (W.SMELTER.y1 + 1) * TILE, 80, [255, 150, 60], 0.9, true);
+    for (let i = 0; i < F.litTiles.length; i += 3) {
+      const [tx, ty] = F.litTiles[i];
+      add(tx * TILE + 8, ty * TILE + 8, 32, [255, 140, 60], 0.4, true);
+    }
+    if (G.stage >= 4) {
+      const a = G.glow[4] || 0;
+      add((W.HEARTH.x + 0.5) * TILE, (W.HEARTH.y) * TILE, 70, [255, 160, 70], 0.9 * a, true);
+      for (const bx of [80, 112, 248, 280]) add(S.px + bx + 5, S.py + 124, 46, [255, 150, 60], 0.7 * a, true);
+    }
     return L;
   }
 
@@ -628,6 +803,26 @@
         life: 0.8, size: 1.5, color: [150, 225, 255], add: true, grav: 60,
       });
     }
+    // embers drifting up from lit conduits near the camera
+    if (F.litTiles.length && Math.random() < dt * 26) {
+      const [tx, ty] = F.litTiles[(Math.random() * F.litTiles.length) | 0];
+      const ex = tx * TILE + 8, ey = ty * TILE + 8;
+      if (Math.abs(ex - camX) < VW && Math.abs(ey - camY) < VH) {
+        spawn({
+          x: ex + (Math.random() - 0.5) * 10, y: ey,
+          vx: (Math.random() - 0.5) * 6, vy: -12 - Math.random() * 12,
+          life: 0.6 + Math.random() * 0.5, size: 1, color: [255, 150 + (Math.random() * 70 | 0), 60], add: true,
+        });
+      }
+    }
+    // smelter smoke
+    if (F.fire.smelterLit && Math.random() < dt * 7) {
+      spawn({
+        x: (W.SMELTER.x0 + 1.5) * TILE + (Math.random() - 0.5) * 4, y: W.SMELTER.y0 * TILE - 24,
+        vx: (Math.random() - 0.5) * 5 + 3, vy: -9 - Math.random() * 5,
+        life: 1.6, size: 2, color: [90, 86, 92], add: false, soft: 0.3,
+      });
+    }
     // garden sparkles after full restoration
     if (G.stage >= 3 && Math.random() < dt * 6) {
       spawn({
@@ -698,8 +893,18 @@
     if (G.fountainRepaired) consider((W.FOUNTAIN.x + 1) * TILE, (W.FOUNTAIN.y + 1) * TILE);
     const water = dWater > 999 ? 0 : Math.max(0, 1 - dWater / 190);
 
+    let dFire = 9999;
+    const considerF = (x, y) => { dFire = Math.min(dFire, Math.hypot(P.x - x, P.y - y)); };
+    if (F.fire.active) considerF((W.VENT.x + 0.5) * TILE, (W.VENT.y + 0.5) * TILE);
+    if (F.fire.smelterLit) considerF((W.SMELTER.x0 + 1.5) * TILE, (W.SMELTER.y1 + 1) * TILE);
+    for (let i = 0; i < F.litTiles.length; i += 4) {
+      const [tx, ty] = F.litTiles[i];
+      considerF(tx * TILE + 8, ty * TILE + 8);
+    }
+    const fire = dFire > 999 ? 0 : Math.max(0, 1 - dFire / 160);
+
     const wind = 1 - 0.45 * G.warmth;
-    AU.setLevels(wind, hum, water);
+    AU.setLevels(wind, hum, water, fire);
     AU.updateMusic(1 / 60, G.stage);
   }
 
@@ -769,6 +974,24 @@
   // ---------- main loop ----------
   let last = performance.now();
   let promptShown = '';
+  let lastLaidTile = null;
+  let laidSinceSave = 0;
+
+  function updateBuildMode() {
+    if (!G.buildMode) return;
+    const tx = Math.floor(P.x / TILE), ty = Math.floor(P.y / TILE);
+    const k = W.key(tx, ty);
+    if (k === lastLaidTile) return;
+    lastLaidTile = k;
+    if (W.placeConduit(tx, ty)) {
+      AU.pluck(520 + Math.random() * 60, 0.06, 'square', 0.12, false);
+      spawn({
+        x: tx * TILE + 8, y: ty * TILE + 8, vx: 0, vy: -10,
+        life: 0.4, size: 2, color: [200, 160, 110], add: false,
+      });
+      if (++laidSinceSave >= 8) { laidSinceSave = 0; save(); }
+    }
+  }
 
   function frame(now) {
     requestAnimationFrame(frame);
@@ -780,13 +1003,14 @@
 
     // --- update
     P.update(dt, input);
+    updateBuildMode();
     F.update(dt);
     updateParticles(dt);
     updateAmbient(dt, G.camX, G.camY);
     updateFireflies(dt);
 
     G.warmth += (G.warmthTarget - G.warmth) * Math.min(1, dt * 0.55);
-    for (let i = 1; i <= 3; i++) if (G.stage >= i) G.glow[i] = Math.min(1, G.glow[i] + dt * 0.4);
+    for (let i = 1; i <= 4; i++) if (G.stage >= i) G.glow[i] = Math.min(1, G.glow[i] + dt * 0.4);
     if (G.stage >= 2) G.cascade = Math.min(1, G.cascade + dt * 0.35);
     G.wheelAngle += dt * (F.states.r3.millPowered ? 2.0 : 0);
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 0.5);
@@ -794,7 +1018,13 @@
     if (G.endTimer > 0) {
       G.endTimer -= dt;
       if (G.endTimer <= 0) {
-        G.endShown = true;
+        if (G.endStage >= 4) {
+          G.endShown4 = true;
+          ui.endcard.querySelector('h1').textContent = 'THE VALLEY IS WHOLE';
+          ui.endcard.querySelector('p').textContent = 'water and fire flow home together — thank you for playing';
+        } else {
+          G.endShown = true;
+        }
         G.state = 'end';
         ui.endcard.classList.add('show');
         save();
@@ -876,6 +1106,9 @@
     drawables.push({ y: 42 * TILE, fn: () => drawMill(G.time) });
     drawables.push({ y: (W.FOUNTAIN.y + 2) * TILE, fn: () => drawFountain(G.time) });
     drawables.push({ y: W.CAMPFIRE.y + 4, fn: () => drawCampfire(G.time) });
+    drawables.push({ y: (W.VENT.y + 1) * TILE, fn: () => drawVent(G.time) });
+    drawables.push({ y: (W.SMELTER.y1 + 1) * TILE + 14, fn: () => drawSmelter(G.time) });
+    drawables.push({ y: (W.HEARTH.y + 1) * TILE, fn: () => drawHearth(G.time) });
     drawables.push({ y: P.y, fn: () => P.draw(vctx) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.fn();

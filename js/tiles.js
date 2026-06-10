@@ -5,6 +5,7 @@ TV.TILE = 16;
 TV.T = {
   GRASS: 0, PATH: 1, PLAZA: 2, CLIFF: 3, RUIN: 4,
   WATER: 5, CHAN: 6, CHAN_F: 7, BASIN: 8, BASIN_F: 9, FLOWERS: 10,
+  CINDER: 11,
 };
 
 TV.SOLID = new Set([TV.T.CLIFF, TV.T.RUIN, TV.T.WATER]);
@@ -46,8 +47,34 @@ TV.Tiles = {
         c.fillRect((1 + r() * 14) | 0, (1 + r() * 14) | 0, 1, 1);
       }
     });
+    this.atlas[T.CINDER] = this._variants(4, (c, r) => {
+      this._speckle(c, r, '#16110d', ['#211913', '#0d0a07', '#2a2018'], 14);
+      if (r() < 0.35) { c.fillStyle = '#7a2c16'; c.fillRect((2 + r() * 12) | 0, (2 + r() * 12) | 0, 1, 1); }
+    });
+    // fire conduits — laid by the player, basalt groove carrying embers
+    this.conduit = this._variants(2, (c, r) => this._conduit(c, r, false, 0));
+    this.conduitFire = this._frames(3, (c, r, f) => this._conduit(c, r, true, f));
     this.trees = [this._tree(1, false), this._tree(2, false), this._tree(3, false)];
     this.warmTrees = [this._tree(1, true), this._tree(2, true), this._tree(3, true)];
+  },
+
+  _conduit(c, r, lit, f) {
+    c.fillStyle = '#2e2620'; c.fillRect(0, 0, 16, 16);
+    c.fillStyle = '#41362c'; c.fillRect(0, 0, 16, 1); c.fillRect(0, 15, 16, 1);
+    c.fillStyle = '#171210'; c.fillRect(1, 3, 14, 10);
+    if (lit) {
+      c.fillStyle = '#b8401a'; c.fillRect(2, 4, 12, 8);
+      c.fillStyle = '#ff9c3a';
+      for (let i = 0; i < 3; i++) {
+        const x = ((i * 5 + f * 2) % 11) + 2;
+        c.fillRect(x, 5 + i * 2, 3, 1);
+      }
+      c.fillStyle = '#ffe08a';
+      c.fillRect(((f * 7 + 4) % 12) + 2, 4 + ((f * 3) % 7), 1, 1);
+    } else {
+      c.fillStyle = '#0d0a08';
+      for (let i = 0; i < 4; i++) c.fillRect((2 + r() * 11) | 0, (4 + r() * 7) | 0, 2, 1);
+    }
   },
 
   _canvas(w = 16, h = 16) {

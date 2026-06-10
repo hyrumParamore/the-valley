@@ -23,6 +23,11 @@ TV.World = {
   MILL: { x: 74, y: 41 },
   FOUNTAIN: { x: 61, y: 46 },
   MURAL: { x0: 46, x1: 49, y: 44 },
+  VENT: { x: 16, y: 64 },
+  SMELTER: { x0: 43, y0: 53, x1: 45, y1: 54 },
+  HEARTH: { x: 49, y: 39 },
+
+  conduits: new Map(), // "x,y" -> {lit:boolean} — player-built fire routes
 
   key(x, y) { return x + ',' + y; },
 
@@ -93,6 +98,17 @@ TV.World = {
     this.rect(52, 61, 58, 66, T.PATH);
     this.rect(36, 40, 44, 41, T.PATH); // plaza -> west corridor
 
+    // southwest forge hollow — fire sleeps here
+    this.rect(8, 56, 30, 57, T.CLIFF);
+    this.rect(8, 72, 30, 73, T.CLIFF);
+    this.rect(8, 56, 9, 73, T.CLIFF);
+    this.rect(29, 56, 30, 73, T.CLIFF);
+    this.rect(29, 62, 30, 65, T.GRASS); // entrance
+    for (let y = 58; y <= 71; y++)      // charred ground around the vent
+      for (let x = 10; x <= 28; x++)
+        if (Math.hypot(x - this.VENT.x, y - this.VENT.y) < 6.5) this.setTile(x, y, T.CINDER);
+    this.rect(31, 63, 51, 64, T.PATH);  // camp -> hollow
+
     // mural wall (freestanding ruin chunk on the plaza)
     this.rect(this.MURAL.x0, this.MURAL.y0, this.MURAL.x1, this.MURAL.y0, T.RUIN);
 
@@ -153,6 +169,26 @@ TV.World = {
     solid(this.FOUNTAIN.x, this.FOUNTAIN.y, this.FOUNTAIN.x + 1, this.FOUNTAIN.y + 1); // fountain
     solid(this.SPRING1.x, this.SPRING1.y, this.SPRING1.x, this.SPRING1.y);
     solid(this.SPRING3.x, this.SPRING3.y, this.SPRING3.x, this.SPRING3.y);
+    solid(this.VENT.x, this.VENT.y, this.VENT.x, this.VENT.y);
+    solid(this.SMELTER.x0, this.SMELTER.y0, this.SMELTER.x1, this.SMELTER.y1);
+    solid(this.HEARTH.x, this.HEARTH.y, this.HEARTH.x, this.HEARTH.y);
+  },
+
+  canPlaceConduit(x, y) {
+    if (this.isSolid(x, y)) return false;
+    if (this.tile(x, y) === TV.T.BASIN) return false; // channels are fine — conduit bridges over them
+    return !this.conduits.has(this.key(x, y));
+  },
+
+  placeConduit(x, y) {
+    if (!this.canPlaceConduit(x, y)) return false;
+    this.conduits.set(this.key(x, y), { lit: false });
+    TV.EventBus.emit('resource_route_placed', { x, y, type: 'fire' });
+    return true;
+  },
+
+  removeConduit(x, y) {
+    return this.conduits.delete(this.key(x, y));
   },
 
   _scatterTrees() {
@@ -165,7 +201,10 @@ TV.World = {
       (x >= 52 && x <= 58 && y >= 12 && y <= 22) ||   // north gap path
       (x >= 35 && x <= 44 && y >= 36 && y <= 46) ||   // west corridor mouth
       (x >= 67 && x <= 80 && y >= 36 && y <= 46) ||   // east corridor mouth
-      (x >= 50 && x <= 60 && y >= 50 && y <= 70);     // south path
+      (x >= 50 && x <= 60 && y >= 50 && y <= 70) ||   // south path
+      (x >= 7 && x <= 32 && y >= 55 && y <= 74) ||    // forge hollow
+      (x >= 30 && x <= 52 && y >= 61 && y <= 66) ||   // hollow path
+      (x >= 41 && x <= 47 && y >= 51 && y <= 56);     // smelter clearing
     for (let y = 4; y < this.H - 4; y++) {
       for (let x = 4; x < this.W - 4; x++) {
         if (this.tile(x, y) !== T.GRASS || blocked(x, y)) continue;

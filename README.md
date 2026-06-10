@@ -14,7 +14,7 @@ folder for best results:
 cd the-valley-web && python3 -m http.server 8080
 ```
 
-**Controls:** WASD / arrows to move · E to interact · M to mute · Shift+N to start a new valley
+**Controls:** WASD / arrows to move · E to interact · B to lay fire conduit (after finding the vent) · X to remove conduit · M to mute · Shift+N to start a new valley
 
 ## The loop (3–5 minute vertical slice)
 
@@ -27,7 +27,12 @@ cd the-valley-web && python3 -m http.server 8080
    return, and the bramble withers in the east.
 4. East in the garden terrace, awaken the last spring. Its water powers the
    **watermill** on the way home (craft stone bricks there to rebuild the plaza
-   fountain). Full restoration — the valley breathes again.
+   fountain). Full water restoration — the valley breathes again.
+5. **Fire (second resource type):** smoke rises from the southwest forge hollow.
+   Stir the ember vent, then press **B** and walk — you lay basalt conduit under
+   your feet (the docs' "build your own routes"). Lead the fire to the dormant
+   smelter to ignite it, forge the hearth key there, unseal the iron hearth at
+   the structure's foot, and route the embers home for the final restoration.
 
 ## Architecture (ported from the Godot tech doc)
 
