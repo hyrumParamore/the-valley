@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Valley</title>
+<style>
+  :root { --ui-font: "Courier New", ui-monospace, monospace; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #05070f;
+    overflow: hidden;
+    font-family: var(--ui-font);
+  }
+  #wrap {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #game {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #05070f;
+  }
+  .ui {
+    position: absolute;
+    color: #cfd8e8;
+    text-shadow: 0 2px 6px rgba(0,0,0,.9);
+    letter-spacing: 1px;
+    pointer-events: none;
+    user-select: none;
+  }
+  #objective {
+    top: 18px; left: 22px;
+    font-size: 13px;
+    color: #9fb2cc;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    max-width: 360px;
+    line-height: 1.5;
+    font-style: italic;
+  }
+  #pips {
+    top: 18px; right: 22px;
+    font-size: 16px;
+    letter-spacing: 6px;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  #prompt {
+    left: 50%; bottom: 17%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: #e8eef8;
+    background: rgba(8,12,24,.72);
+    border: 1px solid rgba(140,170,220,.35);
+    padding: 7px 14px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity .25s ease;
+  }
+  #note {
+    left: 50%; top: 24%;
+    transform: translateX(-50%);
+    font-size: 15px;
+    font-style: italic;
+    color: #d8e4f4;
+    opacity: 0;
+    transition: opacity 1.5s ease;
+    text-align: center;
+    white-space: nowrap;
+  }
+  #controls {
+    left: 50%; bottom: 26px;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #6e7e98;
+    opacity: 0;
+    transition: opacity 2s ease;
+    text-align: center;
+  }
+  #endcard {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 22px;
+    background: rgba(4,6,12,0);
+    opacity: 0;
+    transition: opacity 4s ease;
+    pointer-events: none;
+  }
+  #endcard.show { opacity: 1; background: rgba(4,6,12,.78); }
+  #endcard h1 {
+    font-size: 26px; font-weight: normal;
+    color: #ffe9b8; letter-spacing: 6px;
+    text-shadow: 0 0 24px rgba(255,210,120,.5);
+  }
+  #endcard p { font-size: 13px; color: #aabace; font-style: italic; letter-spacing: 2px; }
+  #fade {
+    position: absolute; inset: 0;
+    background: #02030a;
+    opacity: 1;
+    transition: opacity 3.5s ease;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+  <div id="objective" class="ui"></div>
+  <div id="pips" class="ui"></div>
+  <div id="prompt" class="ui"></div>
+  <div id="note" class="ui"></div>
+  <div id="controls" class="ui">WASD / arrows — move &nbsp;&nbsp; E — interact &nbsp;&nbsp; M — mute</div>
+  <div id="endcard" class="ui">
+    <h1>THE VALLEY BREATHES AGAIN</h1>
+    <p>thank you for playing — a web prototype of The Valley</p>
+    <p style="font-size:11px;color:#76869e">press any key to keep wandering &nbsp;·&nbsp; shift+N for a new valley</p>
+  </div>
+  <div id="fade"></div>
+
+  <script src="js/eventbus.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/tiles.js"></script>
+  <script src="js/structure.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/flow.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
